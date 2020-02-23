@@ -13,6 +13,18 @@ pub struct Timer<TIMER> {
     clock_frequency: Hertz,
 } 
 
+
+pub(crate) mod sealed {
+    pub trait Remap {
+        type Periph;
+        const REMAP: u8;
+    }
+    pub trait Ch1<REMAP> {}
+    pub trait Ch2<REMAP> {}
+    pub trait Ch3<REMAP> {}
+    pub trait Ch4<REMAP> {}
+}
+
 impl Timer<TIMER6> {
     /// Initialize the timer. 
     /// 

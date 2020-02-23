@@ -46,6 +46,9 @@ pub struct PushPull;
 /// Open drain output or alternate (type state)
 pub struct OpenDrain;
 
+///Marker trait for pin mode detection
+pub trait Mode<MODE> {}
+
 /// Marker trait for active states
 pub trait Active {}
 

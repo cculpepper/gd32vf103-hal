@@ -57,6 +57,7 @@ pub mod rcu;
 pub mod spi;
 pub mod time;
 pub mod timer;
+pub mod pwm;
 
 /// Prelude
 pub mod prelude {
