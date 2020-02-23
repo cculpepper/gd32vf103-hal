@@ -5,7 +5,7 @@ use crate::gpio::{Output, PushPull, Alternate, Input, Floating};
 use crate::gpio::gpioa::*;
 use crate::gpio::gpiob::*;
 use crate::time::Hertz;
-use embedded_hal::spi::{FullDuplex, Polarity, Phase, Mode};
+pub use embedded_hal::spi::{FullDuplex, Polarity, Phase, Mode};
 use embedded_hal::blocking::spi::*;
 
 /// SPI error
