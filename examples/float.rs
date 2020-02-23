@@ -2,8 +2,8 @@
 #![no_std]
 #![no_main]
 
-extern crate panic_halt;
 extern crate alloc;
+extern crate panic_halt;
 
 use linked_list_allocator::LockedHeap;
 
@@ -23,6 +23,7 @@ use alloc::format;
 fn main() -> ! {
     let a = 2.33f32;
     let s = format!("{}", a);
-    unsafe { asm!(""::"r"(s.len())) };
+    // uses variant `s` so it's not optimized out
+    unsafe { asm!(""::"r"(s.len())) }; 
     loop {}
 }
