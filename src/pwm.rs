@@ -55,13 +55,18 @@
 
 
 use crate::pac::TIMER4;
+use crate::pac::AFIO;
 use crate::rcu::{Clocks, APB1};
+use crate::timer::Timer;
 
 use crate::gpio::{self, Alternate, PushPull};
 use crate::time::Hertz;
-use crate::timer::Timer;
+// use crate::bb;
+use embedded_hal;
 
 use core::marker::PhantomData;
+use core::mem;
+
 
 pub trait Pins<REMAP, P> {
     const C1: bool = false;
@@ -108,29 +113,29 @@ pins_impl!(
 );
 
 
-#[cfg(feature = "medium")]
 impl Timer<TIMER4> {
     pub fn pwm<REMAP, P, PINS, T>(
         self,
         _pins: PINS,
-        mapr: &mut MAPR,
+        afio: &mut AFIO,
         freq: T,
+        clock: Clocks
     ) -> PINS::Channels
     where
         REMAP: Remap<Periph = TIMER4>,
         PINS: Pins<REMAP, P>,
         T: Into<Hertz>,
     {
-        mapr.modify_mapr(|_, w| w.timer4_remap().bit(REMAP::REMAP == 1));
+        // mapr.modify_mapr(|_, w| w.timer4_remap().bit(REMAP::REMAP == 1));
 
-        let Self { tim, clk } = self;
-        timer4(tim, _pins, freq.into(), clk)
+        let Self { timer, clock_scaler, clock_frequency } = self;
+        timer4(timer, _pins, freq.into(), clock)
     }
 }
 
 pub struct Pwm<TIMER, CHANNEL> {
     _channel: PhantomData<CHANNEL>,
-    _tim: PhantomData<TIMER>,
+    _timer: PhantomData<TIMER>,
 }
 
 pub struct C1;
@@ -142,7 +147,7 @@ macro_rules! hal {
     ($($TIMERX:ident: ($timX:ident),)+) => {
         $(
             fn $timX<REMAP, P, PINS>(
-                tim: $TIMERX,
+                timer: $TIMERX,
                 _pins: PINS,
                 freq: Hertz,
                 clk: Hertz,
@@ -152,53 +157,81 @@ macro_rules! hal {
                 PINS: Pins<REMAP, P>,
             {
                 if PINS::C1 {
-                    tim.ccmr1_output()
-                        .modify(|_, w| w.oc1pe().set_bit().oc1m().pwm_mode1() );
+                    unsafe {
+                        timer.chctl0.modify(|_,w|{
+                            w
+                                // This is just going to use PWM mode 1, bits 111 in the CH0COMCTL
+                                // It should be good enough for now to get pwm working
+                                .ch0comctl.bits(0b111)
+                        });
+                    }
+                    // tim.ccmr1_output()
+                        // .modify(|_, w| w.oc1pe().set_bit().oc1m().pwm_mode1() );
                 }
 
-                if PINS::C2 {
-                    tim.ccmr1_output()
-                        .modify(|_, w| w.oc2pe().set_bit().oc2m().pwm_mode1() );
-                }
+                //TODO Rest of channels
+                // if PINS::C2 {
+                    // tim.ccmr1_output()
+                        // .modify(|_, w| w.oc2pe().set_bit().oc2m().pwm_mode1() );
+                // }
 
-                if PINS::C3 {
-                    tim.ccmr2_output()
-                        .modify(|_, w| w.oc3pe().set_bit().oc3m().pwm_mode1() );
-                }
+                // if PINS::C3 {
+                    // tim.ccmr2_output()
+                        // .modify(|_, w| w.oc3pe().set_bit().oc3m().pwm_mode1() );
+                // }
 
-                if PINS::C4 {
-                    tim.ccmr2_output()
-                        .modify(|_, w| w.oc4pe().set_bit().oc4m().pwm_mode1() );
-                }
+                // if PINS::C4 {
+                    // tim.ccmr2_output()
+                        // .modify(|_, w| w.oc4pe().set_bit().oc4m().pwm_mode1() );
+                // }
                 let ticks = clk.0 / freq.0;
-                let psc = u16(ticks / (1 << 16)).unwrap();
-                tim.psc.write(|w| w.psc().bits(psc) );
-                let arr = u16(ticks / u32(psc + 1)).unwrap();
-                tim.arr.write(|w| w.arr().bits(arr));
+                let psc = (ticks / (1 << 16)).unwrap() as u16;
+                timer.psc.write(|w| w.psc().bits(psc) );
+                let car = (ticks / (psc + 1) as u32).unwrap() as u16;
+                timer.car.write(|w| w.car().bits(car));
 
-                tim.cr1.write(|w|
-                    w.cms()
-                        .bits(0b00)
-                        .dir()
-                        .clear_bit()
-                        .opm()
-                        .clear_bit()
-                        .cen()
-                        .set_bit()
-                );
+                timer.ctl0.write(|w|
+                                 w
+                                 .cam().bits(0b00) // Edge aligned
+                                 .dir().clear_bit() // Count up
+                                 .spm().clear_bit() // Don't stop the counter
+                                 .cen().set_bit() // Enable the counter
+                                 );
+
+                // tim0.cr1.write(|w|
+                    // w.cms()
+                        // .bits(0b00)
+                        // .dir()
+                        // .clear_bit()
+                        // .opm()
+                        // .clear_bit()
+                        // .cen()
+                        // .set_bit()
+                // );
 
                 unsafe { mem::MaybeUninit::uninit().assume_init() }
             }
 
-            impl hal::PwmPin for Pwm<$TIMERX, C1> {
+// Channel 1
+            impl embedded_hal::PwmPin for Pwm<$TIMERX, C1> {
                 type Duty = u16;
 
                 fn disable(&mut self) {
-                    unsafe { bb::clear(&(*$TIMERX::ptr()).ccer, 0) }
+                    unsafe {
+                        self.timer.chctl0.modify(|_,w|{
+                            w
+                            .ch0en.clear_bit()
+                        });
+                        // bb::clear(&(*$TIMERX::ptr()).ccer, 0)
+                    }
                 }
 
                 fn enable(&mut self) {
-                    unsafe { bb::set(&(*$TIMERX::ptr()).ccer, 0) }
+                    self.timer.chctl0.modify(|_,w|{
+                        w
+                            .ch0en.set_bit()
+                    });
+                    // unsafe { bb::set(&(*$TIMERX::ptr()).ccer, 0) }
                 }
 
                 fn get_duty(&self) -> u16 {
@@ -214,82 +247,81 @@ macro_rules! hal {
                 }
             }
 
-            impl hal::PwmPin for Pwm<$TIMERX, C2> {
-                type Duty = u16;
+            // impl hal::PwmPin for Pwm<$TIMERX, C2> {
+                // type Duty = u16;
 
-                fn disable(&mut self) {
-                    unsafe { bb::clear(&(*$TIMERX::ptr()).ccer, 4) }
-                }
+                // fn disable(&mut self) {
+                    // unsafe { bb::clear(&(*$TIMERX::ptr()).ccer, 4) }
+                // }
 
-                fn enable(&mut self) {
-                    unsafe { bb::set(&(*$TIMERX::ptr()).ccer, 4) }
-                }
+                // fn enable(&mut self) {
+                    // unsafe { bb::set(&(*$TIMERX::ptr()).ccer, 4) }
+                // }
 
-                fn get_duty(&self) -> u16 {
-                    unsafe { (*$TIMERX::ptr()).ccr2.read().ccr().bits() }
-                }
+                // fn get_duty(&self) -> u16 {
+                    // unsafe { (*$TIMERX::ptr()).ccr2.read().ccr().bits() }
+                // }
 
-                fn get_max_duty(&self) -> u16 {
-                    unsafe { (*$TIMERX::ptr()).arr.read().arr().bits() }
-                }
+                // fn get_max_duty(&self) -> u16 {
+                    // unsafe { (*$TIMERX::ptr()).arr.read().arr().bits() }
+                // }
 
-                fn set_duty(&mut self, duty: u16) {
-                    unsafe { (*$TIMERX::ptr()).ccr2.write(|w| w.ccr().bits(duty)) }
-                }
-            }
+                // fn set_duty(&mut self, duty: u16) {
+                    // unsafe { (*$TIMERX::ptr()).ccr2.write(|w| w.ccr().bits(duty)) }
+                // }
+            // }
 
-            impl hal::PwmPin for Pwm<$TIMERX, C3> {
-                type Duty = u16;
+            // impl hal::PwmPin for Pwm<$TIMERX, C3> {
+                // type Duty = u16;
 
-                fn disable(&mut self) {
-                    unsafe { bb::clear(&(*$TIMERX::ptr()).ccer, 8) }
-                }
+                // fn disable(&mut self) {
+                    // unsafe { bb::clear(&(*$TIMERX::ptr()).ccer, 8) }
+                // }
 
-                fn enable(&mut self) {
-                    unsafe { bb::set(&(*$TIMERX::ptr()).ccer, 8) }
-                }
+                // fn enable(&mut self) {
+                    // unsafe { bb::set(&(*$TIMERX::ptr()).ccer, 8) }
+                // }
 
-                fn get_duty(&self) -> u16 {
-                    unsafe { (*$TIMERX::ptr()).ccr3.read().ccr().bits() }
-                }
+                // fn get_duty(&self) -> u16 {
+                    // unsafe { (*$TIMERX::ptr()).ccr3.read().ccr().bits() }
+                // }
 
-                fn get_max_duty(&self) -> u16 {
-                    unsafe { (*$TIMERX::ptr()).arr.read().arr().bits() }
-                }
+                // fn get_max_duty(&self) -> u16 {
+                    // unsafe { (*$TIMERX::ptr()).arr.read().arr().bits() }
+                // }
 
-                fn set_duty(&mut self, duty: u16) {
-                    unsafe { (*$TIMERX::ptr()).ccr3.write(|w| w.ccr().bits(duty)) }
-                }
-            }
+                // fn set_duty(&mut self, duty: u16) {
+                    // unsafe { (*$TIMERX::ptr()).ccr3.write(|w| w.ccr().bits(duty)) }
+                // }
+            // }
 
-            impl hal::PwmPin for Pwm<$TIMERX, C4> {
-                type Duty = u16;
+            // impl hal::PwmPin for Pwm<$TIMERX, C4> {
+                // type Duty = u16;
 
-                fn disable(&mut self) {
-                    unsafe { bb::clear(&(*$TIMERX::ptr()).ccer, 12) }
-                }
+                // fn disable(&mut self) {
+                    // unsafe { bb::clear(&(*$TIMERX::ptr()).ccer, 12) }
+                // }
 
-                fn enable(&mut self) {
-                    unsafe { bb::set(&(*$TIMERX::ptr()).ccer, 12) }
-                }
+                // fn enable(&mut self) {
+                    // unsafe { bb::set(&(*$TIMERX::ptr()).ccer, 12) }
+                // }
 
-                fn get_duty(&self) -> u16 {
-                    unsafe { (*$TIMERX::ptr()).ccr4.read().ccr().bits() }
-                }
+                // fn get_duty(&self) -> u16 {
+                    // unsafe { (*$TIMERX::ptr()).ccr4.read().ccr().bits() }
+                // }
 
-                fn get_max_duty(&self) -> u16 {
-                    unsafe { (*$TIMERX::ptr()).arr.read().arr().bits() }
-                }
+                // fn get_max_duty(&self) -> u16 {
+                    // unsafe { (*$TIMERX::ptr()).arr.read().arr().bits() }
+                // }
 
-                fn set_duty(&mut self, duty: u16) {
-                    unsafe { (*$TIMERX::ptr()).ccr4.write(|w| w.ccr().bits(duty)) }
-                }
-            }
+                // fn set_duty(&mut self, duty: u16) {
+                    // unsafe { (*$TIMERX::ptr()).ccr4.write(|w| w.ccr().bits(duty)) }
+                // }
+            // }
         )+
     }
 }
 
-#[cfg(feature = "medium")]
 hal! {
     TIMER4: (timer4),
 }

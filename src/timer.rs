@@ -1,6 +1,7 @@
 //! Timers
 use crate::time::Hertz;
 use crate::pac::TIMER6;
+use crate::pac::TIMER4;
 use crate::rcu::{Clocks, APB1};
 use embedded_hal::blocking::delay::DelayMs;
 use embedded_hal::timer::CountDown;
@@ -23,6 +24,25 @@ pub(crate) mod sealed {
     pub trait Ch2<REMAP> {}
     pub trait Ch3<REMAP> {}
     pub trait Ch4<REMAP> {}
+}
+
+impl Timer<TIMER4> {
+    /// Initialize the timer. 
+    /// 
+    /// An enable and reset procedure is procceed to peripheral to clean its state.
+    pub fn timer4(timer: TIMER4, clock: Clocks, apb1: &mut APB1) -> Self {
+        riscv::interrupt::free(|_| {
+            // Enable, then set and clear rst bit to reset it. 
+            apb1.en().modify(|_, w| w.timer4en().set_bit());
+            apb1.rst().write(|w| w.timer4rst().set_bit());
+            apb1.rst().write(|w| w.timer4rst().clear_bit());
+        });
+        Timer {
+            timer: timer,
+            clock_scaler: 1000,
+            clock_frequency: clock.ck_apb1(),
+        }
+    }
 }
 
 impl Timer<TIMER6> {
