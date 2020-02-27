@@ -17,11 +17,14 @@ impl RcuExt for RCU {
             apb2: APB2 { _ownership: () },
             ahb: AHB { _ownership: () },
             clocks: Clocks {
+                // todo: check code here
                 ck_sys: 8.mhz().into(),
                 ck_ahb: 8.mhz().into(),
                 ck_apb1: 8.mhz().into(),
                 ck_apb2: 8.mhz().into(),
             },
+            cfg: CFG { _ownership: () },
+            bdctl: BDCTL { _ownership: () },
             // ...
             _todo: (),
         }
@@ -41,14 +44,19 @@ pub struct Rcu {
     pub apb2: APB2,
     /// AHB registers
     ///
-    /// Constrains `AHBEN`
+    /// Constrains `AHBEN`.
     pub ahb: AHB,
     /// Clock configuration registers
     ///
     /// Constrains `CFG0` and `CFG1` and `CTL0`
+    pub cfg: CFG,
+    // todo: remove
     pub clocks: Clocks,
+    /// Backup domain control register
+    ///
+    /// Constrains `BDCTL`.
+    pub bdctl: BDCTL,
     // ...
-    #[doc(hidden)]
     _todo: (),
 }
 
@@ -104,6 +112,13 @@ impl APB2 {
     }
 }
 
+/// Clock configuration registers
+///
+/// Constrains `CFG0` and `CFG1` and `CTL0`
+pub struct CFG {
+    _ownership: (),
+}
+
 //TODO read the registers and store in struct, rather than hardcode defaults
 //TODO actually freeze these somehow...
 /// Frozen clock freqencies
@@ -152,5 +167,16 @@ impl Clocks {
     /// Returns the freqency of the PCLK2 clock used for apb2 peripherals
     pub fn pclk2(&self) -> Hertz {
         return self.ck_apb2;
+    }
+}
+
+pub struct BDCTL {
+    _ownership: (),
+}
+
+impl BDCTL {
+    #[inline]
+    pub(crate) fn bdctl(&mut self) -> &rcu::BDCTL {
+        unsafe { &(*RCU::ptr()).bdctl }
     }
 }
