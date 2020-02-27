@@ -49,15 +49,22 @@
 
 pub use gd32vf103_pac as pac;
 
+pub mod adc;
+pub mod afio;
+pub mod backup;
+pub mod crc;
 pub mod ctimer;
-pub mod serial;
 pub mod delay;
+pub mod esig;
+pub mod fmc;
 pub mod gpio;
 pub mod rcu;
+pub mod serial;
 pub mod spi;
 pub mod time;
 pub mod timer;
 pub mod pwm;
+pub mod wdog;
 
 /// Prelude
 pub mod prelude {
@@ -71,4 +78,31 @@ pub mod prelude {
         StatefulOutputPin as _embedded_hal_digital_v2_StatefulOutputPin,
         ToggleableOutputPin as _embedded_hal_digital_v2_ToggleableOutputPin,
     };
+    pub use embedded_hal::watchdog::{
+        Watchdog as _embedded_hal_Watchdog, WatchdogEnable as _embedded_hal_WatchdogEnable,
+    };
 }
+
+// == Notes on prelude trait function naming:
+//
+// If we wrap some register modules into one Rust `mod`, we infer that
+// all the modules share common switches, clocks or unlock process.
+//
+// To take apart whole module into functional module register groups,
+// we use traits with one function. Function name can be arbitrary in
+// theory but we prefer following frequent function names:
+// - split
+// - constrain
+// - configure
+//
+// The function name should depends on how the modules logically effect
+// each other:
+//
+// If logical state of module registers do not depend on each other,
+// the trait function name could be `split`.
+//
+// If logical states of module registers is under inherit or hierarchy
+// relation thus may depend on each other, name could be `constain`
+// or `configure`. If all combination of register states are valid,
+// use `configure`; otherwise if some combinations are invalid, use
+// `constrain`.

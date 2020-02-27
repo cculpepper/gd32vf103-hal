@@ -1,8 +1,8 @@
 //! Timers
-use crate::time::Hertz;
 use crate::pac::TIMER6;
 use crate::pac::TIMER4;
 use crate::rcu::{Clocks, APB1};
+use crate::time::Hertz;
 use embedded_hal::blocking::delay::DelayMs;
 use embedded_hal::timer::CountDown;
 
@@ -12,7 +12,7 @@ pub struct Timer<TIMER> {
     pub timer: TIMER,
     pub clock_scaler: u16,
     pub clock_frequency: Hertz,
-} 
+}
 
 
 pub(crate) mod sealed {
@@ -46,8 +46,8 @@ impl Timer<TIMER4> {
 }
 
 impl Timer<TIMER6> {
-    /// Initialize the timer. 
-    /// 
+    /// Initialize the timer.
+    ///
     /// An enable and reset procedure is procceed to peripheral to clean its state.
     pub fn timer6(timer: TIMER6, clock: Clocks, apb1: &mut APB1) -> Self {
         riscv::interrupt::free(|_| {
@@ -87,22 +87,22 @@ impl<T: Into<u32>> DelayMs<T> for Timer<TIMER6> {
 
 impl CountDown for Timer<TIMER6> {
     type Time = u16;
-    
+
     fn start<T>(&mut self, count: T)
     where
         T: Into<Self::Time>,
     {
-        unsafe {
-            let c = count.into();
-            riscv::interrupt::free(|_| {
-                self.timer.psc.write(|w| w.psc().bits(self.clock_scaler));
-                self.timer.intf.write(|w| w.upif().clear_bit());
-                self.timer.swevg.write(|w| w.upg().set_bit());
-                self.timer.intf.write(|w| w.upif().clear_bit());
-                self.timer.car.modify(|_, w| w.carl().bits(c));
-                self.timer.ctl0.modify(|_, w| w.cen().set_bit());
-            });
-        }
+        let c = count.into();
+        riscv::interrupt::free(|_| {
+            self.timer
+                .psc
+                .write(|w| unsafe { w.psc().bits(self.clock_scaler) });
+            self.timer.intf.write(|w| w.upif().clear_bit());
+            self.timer.swevg.write(|w| w.upg().set_bit());
+            self.timer.intf.write(|w| w.upif().clear_bit());
+            self.timer.car.modify(|_, w| unsafe { w.carl().bits(c) });
+            self.timer.ctl0.modify(|_, w| w.cen().set_bit());
+        });
     }
 
     //TODO this signature changes in a future version, so we don'ot need the void crate.
