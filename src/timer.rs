@@ -9,9 +9,9 @@ use embedded_hal::timer::CountDown;
 // I'd prefer using Timer<TIMERx> for convenience
 /// Timer object
 pub struct Timer<TIMER> {
-    timer: TIMER,
-    clock_scaler: u16,
-    clock_frequency: Hertz,
+    pub timer: TIMER,
+    pub clock_scaler: u16,
+    pub clock_frequency: Hertz,
 } 
 
 
