@@ -1,12 +1,10 @@
 use crate::pac::TIMER4;
 use crate::rcu::{Clocks};
-use crate::gpio::{Mode, Alternate, PushPull};
+use crate::gpio::{Alternate, PushPull};
 use crate::gpio::gpioa::*;
 
 
 use crate::time::Hertz;
-// use crate::bb;
-use embedded_hal;
 
 pub struct Channels {
     ch1: Option<PA0<Alternate<PushPull>>>,
@@ -25,7 +23,7 @@ pub struct Pwm {
 
 impl Pwm{
 
-    pub fn new(
+    pub fn pwm(
         freq: Hertz,
         clock: Clocks,
         timer: TIMER4,
@@ -153,45 +151,42 @@ impl Pwm{
         // unsafe { (*$TIMERX::ptr()).ccr1.read().ccr().bits() }
         match ch{
             1 =>
-                return (self.timer.ch0cv.read().bits() >> 16) as u16,
+                // For some reason, these are implemented as 32 bit, not 16 bit.
+                return (self.timer.ch0cv.read().bits() & 0xffff) as u16,
             2 =>
-                return (self.timer.ch1cv.read().bits() >> 16) as u16,
+                return (self.timer.ch1cv.read().bits() & 0xffff) as u16,
             3 =>
-                return (self.timer.ch2cv.read().bits() >> 16) as u16,
+                return (self.timer.ch2cv.read().bits() & 0xffff) as u16,
             4 =>
-                return (self.timer.ch3cv.read().bits() >> 16) as u16,
+                return (self.timer.ch3cv.read().bits() & 0xffff) as u16,
             _ => 0,
         }
     }
 
-    pub fn get_max_duty(&mut self, ch: u8) -> u16 {
+    pub fn get_max_duty(&mut self) -> u16 {
         self.timer.car.read().bits()
     }
 
     pub fn set_duty(&mut self, ch: u8, duty: u16) {
         match ch{
             1 =>
-                self.timer.chctl2.modify(|_,w|
-                                         w
-                                         .ch0en().clear_bit()
-                                        ),
+                // For some reason, these are implemented as 32 bit, not 16 bit.
+                unsafe{
+                    self.timer.ch0cv.write(|w| w.bits(duty.into()));
+                }
             2 =>
-                self.timer.chctl2.modify(|_,w|
-                                         w
-                                         .ch1en().clear_bit()
-                                        ),
+                unsafe{
+                    self.timer.ch1cv.write(|w| w.bits(duty.into()));
+                }
             3 =>
-                self.timer.chctl2.modify(|_,w|
-                                         w
-                                         .ch2en().clear_bit()
-                                        ),
+                unsafe{
+                    self.timer.ch2cv.write(|w| w.bits(duty.into()));
+                }
             4 =>
-                self.timer.chctl2.modify(|_,w|
-                                         w
-                                         .ch3en().clear_bit()
-                                        ),
-            _ => ()
+                unsafe{
+                    self.timer.ch3cv.write(|w| w.bits(duty.into()));
+                }
+            _ => {},
         }
-        // unsafe { (*$TIMERX::ptr()).ccr1.write(|w| w.ccr().bits(duty)) }
     }
 }
