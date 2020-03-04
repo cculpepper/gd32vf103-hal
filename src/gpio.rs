@@ -177,15 +177,34 @@ pub trait Unlock {
     fn unlock(self, lock: &mut Self::Lock) -> Self::Output;
 }
 
-#[inline]
+// This function uses AtomicU32, compiles into atomic instructions to prevent data race
+// and optimize for speed.
+//
+// If we don't do like this, we would need to go into critical section, where additional
+// interrupt disabling and enabling operations are required, which needs lots of CSR
+// read/write instructions and costs lot of time.
+//
+// For all `is_one: true` params, the core feature of this function compiles into
+// only one atomic instruction `amoor.w.aqrl` to set the target register.
+// (For `is_one: false` params, it compiles into ont `amoand.w.aqrl`).
+// Additional instructions to set the mask may differ between actual applications,
+// this part may cost additional one to two instructions (mainly `lui` and `addi`).
+//
+// Note: we uses `fetch_and(!mask, ...)` instead of `fetch_nand(mask, ...)`; that's
+// because RISC-V's RV32A does not provide an atomic nand instruction, thus `rustc`
+// may compile code into very long binary output.
+#[inline(always)]
 fn atomic_set_bit(r: &AtomicU32, is_one: bool, index: usize) {
     let mask = 1 << index;
-    match is_one {
-        true => r.fetch_or(mask, Ordering::SeqCst),
-        false => r.fetch_nand(mask, Ordering::SeqCst),
-    };
+    if is_one {
+        r.fetch_or(mask, Ordering::SeqCst);
+    } else {
+        r.fetch_and(!mask, Ordering::SeqCst);
+    }
 }
 
+// This function compiles into RV32A's `amoxor.w.aqrl` instruction to prevent data
+// race as well as optimize for speed.
 #[inline(always)]
 fn atomic_toggle_bit(r: &AtomicU32, index: usize) {
     let mask = 1 << index;
@@ -321,6 +340,7 @@ pub mod $gpiox {
         pub fn freeze(mut self) {
             let tmp = self.tmp_bits;
             let a = tmp | 0x00010000;
+            // write in special ways to lock the register
             let success = riscv::interrupt::free(|_| {
                 self.lock().write(|w| unsafe { w.bits(a) });
                 self.lock().write(|w| unsafe { w.bits(tmp) });
@@ -329,9 +349,8 @@ pub mod $gpiox {
                 let ans2 = self.lock().read().bits();
                 ans1 == 0 && ans2 & 0x00010000 != 0
             });
-            if success {
-                return;
-            } else {
+            // if success, this function returns
+            if !success {
                 panic!("the LOCK freeze process won't succeed")
             }
         }
@@ -387,7 +406,7 @@ pub mod $gpiox {
         type Error = Infallible;
 
         fn toggle(&mut self) -> Result<(), Self::Error> {
-            let r: &AtomicU32 = unsafe { core::mem::transmute(&(*$GPIOX::ptr()).octl) };
+            let r: &AtomicU32 = unsafe { &*(&(*$GPIOX::ptr()).octl as *const _ as *const _) };
             super::atomic_toggle_bit(r, self.i as usize);
             Ok(())
         }
@@ -438,7 +457,7 @@ $(
             $ctl: &mut $CTL,
             octl: &mut OCTL,
         ) -> $PXi<Input<PullDown>> {
-            let r: &AtomicU32 = unsafe { core::mem::transmute(octl.octl()) };
+            let r: &AtomicU32 = unsafe { &*(&octl.octl() as *const _ as *const _) };
             super::atomic_set_bit(r, false, Self::OP_LK_INDEX);
             self.into_with_ctrl_md($ctl, 0b10_00)
         }
@@ -449,7 +468,7 @@ $(
             $ctl: &mut $CTL,
             octl: &mut OCTL,
         ) -> $PXi<Input<PullUp>> {
-            let r: &AtomicU32 = unsafe { core::mem::transmute(octl.octl()) };
+            let r: &AtomicU32 = unsafe { &*(&octl.octl() as *const _ as *const _) };
             super::atomic_set_bit(r, true, Self::OP_LK_INDEX);
             self.into_with_ctrl_md($ctl, 0b10_00)
         }
@@ -556,7 +575,7 @@ $(
         /// called; see its documentation for details.
         #[inline]
         pub fn lock(self, lock: &mut LOCK) -> Locked<$PXi<MODE>> {
-            let r: &AtomicU32 = unsafe { core::mem::transmute(&lock.tmp_bits) };
+            let r: &AtomicU32 = unsafe { &*(&lock.tmp_bits as *const _ as *const _) };
             super::atomic_set_bit(r, true, Self::OP_LK_INDEX);
             Locked($PXi {
                 _typestate_mode: PhantomData,
@@ -575,7 +594,7 @@ $(
         #[inline]
         fn unlock(self, lock: &mut Self::Lock) -> Self::Output {
             // set temporary bit for this pin in LOCK struct
-            let r: &AtomicU32 = unsafe { core::mem::transmute(&lock.tmp_bits) };
+            let r: &AtomicU32 = unsafe { &*(&lock.tmp_bits as *const _ as *const _) };
             super::atomic_set_bit(r, false, $i); // PXi::OP_LK_INDEX
             $PXi {
                 _typestate_mode: PhantomData,
@@ -669,7 +688,7 @@ $(
         type Error = Infallible;
 
         fn toggle(&mut self) -> Result<(), Self::Error> {
-            let r: &AtomicU32 = unsafe { core::mem::transmute(&(*$GPIOX::ptr()).octl) };
+            let r: &AtomicU32 = unsafe { &*(&(*$GPIOX::ptr()).octl as *const _ as *const _) };
             super::atomic_toggle_bit(r, Self::OP_LK_INDEX);
             Ok(())
         }
@@ -679,7 +698,7 @@ $(
         type Error = Infallible;
 
         fn toggle(&mut self) -> Result<(), Self::Error> {
-            let r: &AtomicU32 = unsafe { core::mem::transmute(&(*$GPIOX::ptr()).octl) };
+            let r: &AtomicU32 = unsafe { &*(&(*$GPIOX::ptr()).octl as *const _ as *const _) };
             super::atomic_toggle_bit(r, Self::OP_LK_INDEX);
             Ok(())
         }
