@@ -7,10 +7,10 @@ use crate::gpio::gpioa::*;
 use crate::time::Hertz;
 
 pub struct Channels {
-    // ch1: Option<PA0<Alternate<PushPull>>>,
-    ch2: Option<PA1<Alternate<PushPull>>>,
-    // ch3: Option<PA2<Alternate<PushPull>>>,
-    // ch4: Option<PA3<Alternate<PushPull>>>,
+    ch0: Option<PA0<Alternate<PushPull>>>,
+    ch1: Option<PA1<Alternate<PushPull>>>,
+    ch2: Option<PA2<Alternate<PushPull>>>,
+    ch3: Option<PA3<Alternate<PushPull>>>,
 }
 
 
@@ -29,14 +29,15 @@ impl Pwm{
         timer: TIMER4,
         apb1: &mut APB1,
         apb2: &mut APB2, // Only need this to enable the afios...
-        // ch1: Option<PA0<Alternate<PushPull>>>,
-        ch2: Option<PA1<Alternate<PushPull>>>,
-        // ch3: Option<PA2<Alternate<PushPull>>>,
-        // ch4: Option<PA3<Alternate<PushPull>>>
+        ch0: Option<PA0<Alternate<PushPull>>>,
+        ch1: Option<PA1<Alternate<PushPull>>>,
+        ch2: Option<PA2<Alternate<PushPull>>>,
+        ch3: Option<PA3<Alternate<PushPull>>>
         ) -> Self {
+        // Honestly, this is probably not a good place to put this, but w.e.
         apb1.en().modify(|_,w| w.timer4en().set_bit());
-        apb1.rst().modify(|_,w| w.timer4rst().set_bit());
-        apb1.rst().modify(|_,w| w.timer4rst().clear_bit());
+        // apb1.rst().modify(|_,w| w.timer4rst().set_bit());
+        // apb1.rst().modify(|_,w| w.timer4rst().clear_bit());
         // Just going to try to do it all in one step here.
         //
         // 1. Config clock
@@ -82,8 +83,8 @@ impl Pwm{
         Pwm{
             timer : timer,
             frequency: freq,
-            channels : Channels{ch2},
-            // channels : Channels{ch1, ch2, ch3, ch4},
+            // channels : Channels{ch2},
+            channels : Channels{ch0, ch1, ch2, ch3},
             clock_freq: clock.ck_apb1(),
         }
 
@@ -92,23 +93,60 @@ impl Pwm{
 
         self.init_timer4(self.frequency.into(), self.clock_freq);
 
-        // if self.channels.ch1.is_some(){
-            // // We're assuming the GPIOs are already in alternate mode here.
-            // self.set_duty(1, 0);
-            // self.enable(1);
-        // }
-        if self.channels.ch2.is_some(){
-            self.set_duty(2, 0);
-            self.enable(2);
+        if self.channels.ch0.is_some(){
+            // We're assuming the GPIOs are already in alternate mode here.
+            self.disable(0);
+            self.enable(0);
+            self.set_duty(0, 0);
+            // self.timer.chctl2.modify(|_,w| w.ch0p().clear_bit());
+            // self.timer.chctl2.modify(|_,w| w.ch0p().set_bit());
+            unsafe{
+                self.timer.chctl0_output().modify(|_,w| w.ch0ms().bits(0b00));
+                self.timer.chctl0_output().modify(|_,w| w.ch0comctl().bits(0b110));
+                self.timer.chctl0_output().modify(|_,w| w.ch0comsen().clear_bit());
+            }
         }
-        // if self.channels.ch3.is_some(){
-            // self.set_duty(3, 0);
-            // self.enable(3);
-        // }
-        // if self.channels.ch4.is_some(){
-            // self.set_duty(4, 0);
-            // self.enable(4);
-        // }
+        if self.channels.ch1.is_some(){
+            self.disable(1);
+            self.enable(1);
+            self.set_duty(1, 0);
+            // self.timer.chctl2.modify(|_,w| w.ch1p().clear_bit());
+            // self.timer.chctl2.modify(|_,w| w.ch1p().set_bit());
+            unsafe{
+                self.timer.chctl0_output().modify(|_,w| w.ch1ms().bits(0b00));
+                self.timer.chctl0_output().modify(|_,w| w.ch1comctl().bits(0b110));
+                self.timer.chctl0_output().modify(|_,w| w.ch1comsen().clear_bit());
+            }
+        }
+        if self.channels.ch2.is_some(){
+            self.disable(2);
+            self.enable(2);
+            self.set_duty(2, 0);
+            // self.timer.chctl2.modify(|_,w| w.ch2p().clear_bit());
+            // self.timer.chctl2.modify(|_,w| w.ch2p().set_bit());
+            unsafe{
+                self.timer.chctl1_output().modify(|_,w| w.ch2ms().bits(0b00));
+                self.timer.chctl1_output().modify(|_,w| w.ch2comctl().bits(0b110));
+                self.timer.chctl1_output().modify(|_,w| w.ch2comsen().clear_bit());
+            }
+        }
+        if self.channels.ch3.is_some(){
+            self.disable(3);
+            self.enable(3);
+            self.set_duty(3, 0);
+            // self.timer.chctl2.modify(|_,w| w.ch3p().clear_bit());
+            // self.timer.chctl2.modify(|_,w| w.ch3p().set_bit());
+            unsafe{
+                self.timer.chctl1_output().modify(|_,w| w.ch3ms().bits(0b00));
+                self.timer.chctl1_output().modify(|_,w| w.ch3comctl().bits(0b110));
+                self.timer.chctl1_output().modify(|_,w| w.ch3comsen().clear_bit());
+            }
+        }
+        self.timer.ctl0.write(|w| w.arse().set_bit()); // Auto reload the shadow register
+        self.timer.ctl0.write(|w|
+                              w
+                              .cen().set_bit() // Enable the counter
+                             );
     }
 
     fn init_timer4(
@@ -117,35 +155,21 @@ impl Pwm{
         clk: Hertz,
         ){
         let ticks = clk.0 / freq.0;
-        let psc = (ticks / (1 << 16)) as u16;
-        let car = (ticks / (psc + 1) as u32) as u16;
+        let psc = 10;//(ticks / (1 << 16)) as u16;
+        let car = 15999;//(ticks / (psc + 1) as u32) as u16;
         unsafe{
-            self.timer.psc.write(|w| w.psc().bits(psc) );
-            self.timer.car.write(|w| w.carl().bits(car));
-            // self.timer.car.write(|w| w.carl().bits(245));
+            self.timer.psc.write(|w| w.psc().bits(10));
 
-            self.timer.ctl0.write(|w|
-                                  w
-                                  .cam().bits(0b00) // Edge aligned
-                                  .dir().clear_bit() // Count up
-                                  .spm().clear_bit() // Don't stop the counter
-                                  .cen().clear_bit() // don't enable the counter yet
+            self.timer.ctl0.write(|w| w
+                                  .cam().bits(0b00) // Count up
+                                  .dir().clear_bit() // 
+                                  .ckdiv().bits(0b00)
                                  );
-        }
-        unsafe {
-            self.timer.chctl0_output().modify(|_,w|{
-                w
-                    // This is just going to use PWM mode 1, bits 111 in the CH0COMCTL
-                    // It should be good enough for now to get pwm working
-                    .ch0comctl().bits(0b110)
-                    .ch0comsen().set_bit()
-            });
+            self.timer.car.write(|w| w.carl().bits(15999));
+
             self.timer.swevg.write(|w| w.upg().set_bit());
-            self.timer.ctl0.write(|w| w.arse().set_bit()); // Auto reload the shadow register
-            self.timer.ctl0.write(|w|
-                                  w
-                                  .cen().set_bit() // Enable the counter
-                                 );
+
+
         }
         // Timer should now be ticking.
 
@@ -153,22 +177,22 @@ impl Pwm{
 
     pub fn disable(&mut self, ch: u8) {
         match ch{
-            1 =>
+            0 =>
                 self.timer.chctl2.modify(|_,w|
                                          w
                                          .ch0en().clear_bit()
                                         ),
-            2 =>
+            1 =>
                 self.timer.chctl2.modify(|_,w|
                                          w
                                          .ch1en().clear_bit()
                                         ),
-            3 =>
+            2 =>
                 self.timer.chctl2.modify(|_,w|
                                          w
                                          .ch2en().clear_bit()
                                         ),
-            4 =>
+            3 =>
                 self.timer.chctl2.modify(|_,w|
                                          w
                                          .ch3en().clear_bit()
@@ -179,58 +203,61 @@ impl Pwm{
 
     pub fn enable(&mut self, ch: u8) {
         match ch{
-            1 => {
+            0 => {
                 self.timer.chctl2.modify(|_,w|
                                          w .ch0en().clear_bit());
 
-                unsafe{
-                self.timer.chctl0_output().modify(|_,w|
-                                         w.ch0ms().bits(0b00));
-                }
                 self.timer.chctl2.modify(|_,w|
                                          w
                                          .ch0en().set_bit()
-                                         .ch0p().clear_bit()
-                                         );
+                                         .ch0p().set_bit()
+                                        );
+                unsafe{
+                    self.timer.chctl0_output().modify(|_,w|
+                        w.ch0ms().bits(0b00));
+                }
             },
-            2 => {
+            1 => {
                 self.timer.chctl2.modify(|_,w|
                                          w .ch1en().clear_bit());
-                unsafe{
-                self.timer.chctl0_output().modify(|_,w|
-                                         w.ch1ms().bits(0b00));
-                }
+
                 self.timer.chctl2.modify(|_,w|
                                          w
                                          .ch1en().set_bit()
-                                         .ch1p().clear_bit()
-                                         );
+                                         .ch1p().set_bit()
+                                        );
+                unsafe{
+                    self.timer.chctl0_output().modify(|_,w|
+                        w.ch1ms().bits(0b00));
+                }
             },
-            3 => {
+            2 => {
                 self.timer.chctl2.modify(|_,w|
                                          w .ch2en().clear_bit());
-                unsafe{
-                self.timer.chctl1_output().modify(|_,w|
-                                         w.ch2ms().bits(0b00));
-                }
+
                 self.timer.chctl2.modify(|_,w|
                                          w
                                          .ch2en().set_bit()
-                                         .ch2p().clear_bit()
-                                         );
+                                         .ch2p().set_bit()
+                                        );
+                unsafe{
+                    self.timer.chctl1_output().modify(|_,w|
+                        w.ch2ms().bits(0b00));
+                }
             },
-            4 => {
+            3 => {
                 self.timer.chctl2.modify(|_,w|
                                          w .ch3en().clear_bit());
-                unsafe{
-                self.timer.chctl1_output().modify(|_,w|
-                                         w.ch3ms().bits(0b00));
-                }
+
                 self.timer.chctl2.modify(|_,w|
                                          w
                                          .ch3en().set_bit()
-                                         .ch3p().clear_bit()
-                                         );
+                                         .ch3p().set_bit()
+                                        );
+                unsafe{
+                    self.timer.chctl1_output().modify(|_,w|
+                        w.ch3ms().bits(0b00));
+                }
             },
             _ => (),
         }
@@ -239,15 +266,15 @@ impl Pwm{
     pub fn get_duty(&mut self, ch: u8) -> u16 {
         // unsafe { (*$TIMERX::ptr()).ccr1.read().ccr().bits() }
         match ch{
-            1 =>
+            0 =>
                 // For some reason, these are implemented as 32 bit, not 16 bit.
-                return (self.timer.ch0cv.read().bits() & 0xffff) as u16,
+                return (self.timer.ch0cv.read().ch0val().bits()),
+            1 =>
+                return (self.timer.ch1cv.read().ch1val().bits()),
             2 =>
-                return (self.timer.ch1cv.read().bits() & 0xffff) as u16,
+                return (self.timer.ch2cv.read().ch2val().bits()),
             3 =>
-                return (self.timer.ch2cv.read().bits() & 0xffff) as u16,
-            4 =>
-                return (self.timer.ch3cv.read().bits() & 0xffff) as u16,
+                return (self.timer.ch3cv.read().ch3val().bits()),
             _ => 0,
         }
     }
@@ -258,22 +285,25 @@ impl Pwm{
 
     pub fn set_duty(&mut self, ch: u8, duty: u16) {
         match ch{
-            1 =>
+            0 =>
                 // For some reason, these are implemented as 32 bit, not 16 bit.
+                // No, I'm an idiot, and just missed the value access register. 
+                // I assumed I could access the entire thing, but there's an 
+                // access function
                 unsafe{
-                    self.timer.ch0cv.write(|w| w.bits(duty.into()));
+                    self.timer.ch0cv.write(|w| w.ch0val().bits(duty));
+                }
+            1 =>
+                unsafe{
+                    self.timer.ch1cv.write(|w| w.ch1val().bits(duty));
                 }
             2 =>
                 unsafe{
-                    self.timer.ch1cv.write(|w| w.bits(duty.into()));
+                    self.timer.ch2cv.write(|w| w.ch2val().bits(duty));
                 }
             3 =>
                 unsafe{
-                    self.timer.ch2cv.write(|w| w.bits(duty.into()));
-                }
-            4 =>
-                unsafe{
-                    self.timer.ch3cv.write(|w| w.bits(duty.into()));
+                    self.timer.ch3cv.write(|w| w.ch3val().bits(duty));
                 }
             _ => {},
         }
