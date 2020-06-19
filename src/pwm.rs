@@ -154,18 +154,20 @@ impl Pwm{
         freq: Hertz,
         clk: Hertz,
         ){
-        let ticks = clk.0 / freq.0;
-        let psc = 10;//(ticks / (1 << 16)) as u16;
-        let car = 15999;//(ticks / (psc + 1) as u32) as u16;
+        let ticks = (clk.0 / freq.0) * 2;// Sorry about the magic number, but it looks like there is a division here.
+        let psc = (ticks / (1 << 16)) as u16;
+        let car = (ticks / (psc + 1) as u32) as u16;
+        // let psc = 10;//(ticks / (1 << 16)) as u16;
+        // let car = 15999;//(ticks / (psc + 1) as u32) as u16;
         unsafe{
-            self.timer.psc.write(|w| w.psc().bits(10));
+            self.timer.psc.write(|w| w.psc().bits(psc));
 
             self.timer.ctl0.write(|w| w
                                   .cam().bits(0b00) // Count up
                                   .dir().clear_bit() // 
                                   .ckdiv().bits(0b00)
                                  );
-            self.timer.car.write(|w| w.carl().bits(15999));
+            self.timer.car.write(|w| w.carl().bits(car));
 
             self.timer.swevg.write(|w| w.upg().set_bit());
 
@@ -279,7 +281,7 @@ impl Pwm{
         }
     }
 
-    pub fn get_max_duty(&mut self) -> u16 {
+    pub fn get_max_duty(& self) -> u16 {
         self.timer.car.read().bits()
     }
 
